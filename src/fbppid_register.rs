@@ -97,7 +97,7 @@ pub fn register_broker(broker_pid: i32) -> Result<(), RegisterError> {
     let ret = unsafe {
         libc::ioctl(
             file.as_raw_fd(),
-            FBPPID_IOC_REGISTER_BROKER,
+            FBPPID_IOC_REGISTER_BROKER as _,
             &args as *const FbppidRegisterBrokerArgs,
         )
     };

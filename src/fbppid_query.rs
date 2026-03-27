@@ -122,7 +122,7 @@ impl FbppidQuery {
         let ret = unsafe {
             libc::ioctl(
                 self.fd(),
-                FBPPID_IOC_QUERY_PPID,
+                FBPPID_IOC_QUERY_PPID as _,
                 &mut args as *mut FbppidQueryArgs,
             )
         };
