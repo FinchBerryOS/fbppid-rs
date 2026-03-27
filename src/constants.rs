@@ -1,0 +1,1 @@
+pub const DEVICE_PATH: &str = "/dev/fbppid";

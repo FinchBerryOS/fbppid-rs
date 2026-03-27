@@ -18,13 +18,12 @@ use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 
+use crate::constants::DEVICE_PATH;
+use crate::fallback::register_broker_fallback;
 use crate::fbppid_uapi::{
     FbppidRegisterBrokerArgs,
     FBPPID_IOC_REGISTER_BROKER,
 };
-
-/// Pfad zum Kernel-Device.
-const DEVICE_PATH: &str = "/dev/fbppid";
 
 /// Fehler bei der Broker-Registrierung.
 #[derive(Debug)]
@@ -58,6 +57,13 @@ impl std::error::Error for RegisterError {
     }
 }
 
+fn should_fallback(errno: Option<i32>) -> bool {
+    matches!(
+        errno,
+        Some(libc::ENOENT | libc::ENODEV | libc::ENOTTY | libc::EOPNOTSUPP)
+    )
+}
+
 /// Registriert `broker_pid` beim Kernel als autorisierten Broker.
 ///
 /// Diese Funktion ist für PID 1 gedacht.
@@ -79,11 +85,31 @@ pub fn register_broker(broker_pid: i32) -> Result<(), RegisterError> {
         "fbppid: registering broker PID with kernel"
     );
 
-    let file = OpenOptions::new()
+    let file = match OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_CLOEXEC)
         .open(DEVICE_PATH)
-        .map_err(RegisterError::OpenDevice)?;
+    {
+        Ok(file) => file,
+        Err(err) => {
+            tracing::warn!(
+                pid = broker_pid,
+                errno = err.raw_os_error().unwrap_or(-1),
+                "fbppid: opening device failed"
+            );
+
+            if should_fallback(err.raw_os_error()) {
+                tracing::warn!(
+                    pid = broker_pid,
+                    "fbppid: kernel interface unavailable, using register fallback"
+                );
+                register_broker_fallback(broker_pid).map_err(RegisterError::OpenDevice)?;
+                return Ok(());
+            }
+
+            return Err(RegisterError::OpenDevice(err));
+        }
+    };
 
     let args = FbppidRegisterBrokerArgs {
         pid: broker_pid,
@@ -104,11 +130,22 @@ pub fn register_broker(broker_pid: i32) -> Result<(), RegisterError> {
 
     if ret < 0 {
         let err = io::Error::last_os_error();
+
         tracing::error!(
             pid = broker_pid,
             errno = err.raw_os_error().unwrap_or(-1),
             "fbppid: REGISTER_BROKER failed"
         );
+
+        if should_fallback(err.raw_os_error()) {
+            tracing::warn!(
+                pid = broker_pid,
+                "fbppid: ioctl interface unavailable, using register fallback"
+            );
+            register_broker_fallback(broker_pid).map_err(RegisterError::Ioctl)?;
+            return Ok(());
+        }
+
         return Err(RegisterError::Ioctl(err));
     }
 
