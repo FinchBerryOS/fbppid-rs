@@ -20,6 +20,13 @@ pub fn register_broker_fallback(pid: i32) -> Result<(), io::Error> {
 }
 
 pub fn query_ppid_fallback(pid: i32) -> Result<i32, io::Error> {
+    if pid <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid pid: {}", pid),
+        ));
+    }
+
     let path = format!("/proc/{}/status", pid);
     let content = fs::read_to_string(&path)?;
 
@@ -28,14 +35,9 @@ pub fn query_ppid_fallback(pid: i32) -> Result<i32, io::Error> {
             let ppid = rest.trim().parse::<i32>().map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("failed to parse PPid from {}: {}", path, e),
+                    format!("failed to parse PPid for pid {} from {}: {}", pid, path, e),
                 )
             })?;
-
-            fallback_klog(&format!(
-                "fbppid kernel interface unavailable, resolved pid {} via procfs to ppid {}",
-                pid, ppid
-            ));
 
             return Ok(ppid);
         }
@@ -43,6 +45,6 @@ pub fn query_ppid_fallback(pid: i32) -> Result<i32, io::Error> {
 
     Err(io::Error::new(
         io::ErrorKind::InvalidData,
-        format!("PPid field not found in {}", path),
+        format!("PPid field not found for pid {} in {}", pid, path),
     ))
 }
